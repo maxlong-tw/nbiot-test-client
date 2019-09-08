@@ -1,0 +1,18 @@
+﻿<?xml version='1.0' encoding='utf-8'?>
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="nbiot_test_client.Properties" GeneratedClassName="Settings">
+  <Profiles />
+  <Settings>
+    <Setting Name="host" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">embux-nbiot.dynns.com</Value>
+    </Setting>
+    <Setting Name="username" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">demo</Value>
+    </Setting>
+    <Setting Name="password" Type="System.String" Scope="User">
+      <Value Profile="(Default)">maxlong</Value>
+    </Setting>
+    <Setting Name="clientId" Type="System.String" Scope="User">
+      <Value Profile="(Default)">nobody</Value>
+    </Setting>
+  </Settings>
+</SettingsFile>
