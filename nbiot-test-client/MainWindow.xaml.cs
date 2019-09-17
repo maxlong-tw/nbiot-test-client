@@ -13,9 +13,6 @@ using uPLibrary.Networking.M2Mqtt.Messages;
 
 namespace nbiot_test_client
 {
-    /// <summary>
-    /// MainWindow.xaml 的互動邏輯
-    /// </summary>
     public partial class MainWindow : Window
     {
         static string TOPIC_STATUS = "/maxlong/broker/imei/{0}/status";
@@ -24,8 +21,9 @@ namespace nbiot_test_client
         
         string imei;
 
-        MqttClient client;
-        Bridge bridge;
+        MqttClient mqtt;
+
+        Bridge bridge; // bridge a serial port to communicate with NB-IoT Gateway
 
         public MainWindow()
         {
@@ -38,19 +36,20 @@ namespace nbiot_test_client
                 return;
             }
 
-            InitializeComponent();
-            send.Click += Send_Click;
-            clear.Click += Clear_Click;
-            bind.Click += Bind_Click;
-
+            InitializeComponent(); // prepare UI components
             gateway.Content = imei;
 
-            foreach (string com in SerialPort.GetPortNames())
+            send.Click += Send_Click; // send by user input
+            clear.Click += Clear_Click; // clean output conosle
+            bind.Click += Bind_Click; // bridge the serial port as user input
+            
+            // which serial port you can choice
+            foreach (string tty in SerialPort.GetPortNames())
             {
-                ttys.Items.Add(com);
+                ttys.Items.Add(tty);
             }
 
-            init();           
+            init(); // establish the MQTT connection
         }
 
         protected override void OnClosing(CancelEventArgs e)
@@ -60,9 +59,9 @@ namespace nbiot_test_client
                 bridge.Destroy();
             }
 
-            if (client != null)
+            if (mqtt != null)
             {
-                client.Disconnect();
+                mqtt.Disconnect();
             }            
         }
 
@@ -70,16 +69,16 @@ namespace nbiot_test_client
 
         void init()
         {
-            client = new MqttClient(Properties.Settings.Default.host);
-            client.MqttMsgPublishReceived += Client_MqttMsgPublishReceived;
+            mqtt = new MqttClient(Properties.Settings.Default.host);
+            mqtt.MqttMsgPublishReceived += Client_MqttMsgPublishReceived;
             try
             {
-                client.Connect(
+                mqtt.Connect(
                     Properties.Settings.Default.clientId,
                     Properties.Settings.Default.username,
                     Properties.Settings.Default.password);
 
-                client.Subscribe(new string[]
+                mqtt.Subscribe(new string[]
                 {
                     String.Format(TOPIC_STATUS, imei),
                     String.Format(TOPIC_RX, imei)
@@ -93,10 +92,29 @@ namespace nbiot_test_client
             catch (Exception e)
             {
                 AppendText("ERROR: Failed to connnect to " + Properties.Settings.Default.host);
-                AppendText("Please re-try later");
+                AppendText("Please re-start this program later");
             }
         }
 
+        // call by 'Bridge' and myself
+        public void Send(byte[] bytes, int offset, int length)
+        {
+            byte[] message = new byte[length];
+            Array.Copy(bytes, offset, message, 0, length);
+
+            Send(message);
+        }
+
+        // send data to NB-IoT Gateway
+        public void Send(byte[] message)
+        {
+            string topic = String.Format(TOPIC_TX, imei);
+            mqtt.Publish(topic, message);
+
+            Println("SEND - " + ByteArrayToString(message));
+        }
+
+        // received the data from NB-IoT Gateway
         private void Client_MqttMsgPublishReceived(object sender, uPLibrary.Networking.M2Mqtt.Messages.MqttMsgPublishEventArgs e)
         {
             if (e.Topic.EndsWith("status")) // /maxlong/broker/imei/{0}/status
@@ -124,6 +142,8 @@ namespace nbiot_test_client
             else if (e.Topic.EndsWith("rx")) // /maxlong/broker/imei/{0}/rx
             {
                 Println("RECV - " + ByteArrayToString(e.Message));
+
+                // write data to serial port
                 if (bridge != null)
                 {
                     bridge.Write(e.Message);
@@ -131,12 +151,15 @@ namespace nbiot_test_client
             }
         }
 
+        // ======
+
         // used by non-UI thread
         void Println(string text)
         {
             Dispatcher.BeginInvoke((Action)(() => AppendText(text)));
         }
 
+        // used by UI thread
         void AppendText(string text)
         {
             output.AppendText(String.Format("[{0}] {1} \r\n", DateTime.Now.ToString("HH:mm:ss"), text));
@@ -154,13 +177,14 @@ namespace nbiot_test_client
             }));
         }
 
+        // send data to NB-IoT Gateway from user input
         private void Send_Click(object sender, RoutedEventArgs e)
         {
             try
             {
                 string hex = tx.Text.Replace(" ", "");
-                byte[] bytes = StringToByteArray(hex);
-                Publish(bytes, 0, bytes.Length);
+                byte[] message = StringToByteArray(hex);
+                Send(message);
             }
             catch (Exception ex)
             {
@@ -168,18 +192,19 @@ namespace nbiot_test_client
             }            
         }
 
+        // bridge serial port to NB-IoT Gateway
         private void Bind_Click(object sender, RoutedEventArgs e)
         {
             string tty = (string) ttys.SelectedItem;
             if (String.IsNullOrEmpty(tty))
             {
-                MessageBox.Show("You must choice a serial port!");
+                MessageBox.Show("You must choice a serial port!", "Error");
                 return;
             }
 
             try
             {
-                bridge = new Bridge(this, tty);
+                bridge = new Bridge(this, tty); // you could get the error by opening serial port
 
                 ttys.IsEnabled = false; // you cannot change it again
                 bind.IsEnabled = false; // you cannot change it again            
@@ -188,20 +213,17 @@ namespace nbiot_test_client
             }
             catch (Exception ex)
             {
-                AppendText("ERROR - failed to open serial port - " + tty + ", " + ex.Message);
+                AppendText(String.Format("ERROR - failed to open serial port - {0}, {1}", tty, ex.Message));
             }
         }
 
-        public void Publish(byte[] bytes, int offset, int count)
+        // clear output console
+        private void Clear_Click(object sender, RoutedEventArgs e)
         {
-            byte[] payload = new byte[count];
-            Array.Copy(bytes, offset, payload, 0, count);
-
-            string topic = String.Format(TOPIC_TX, imei);
-            client.Publish(topic, payload);
-
-            Println("SEND - " + ByteArrayToString(payload));
+            output.Text = "";
         }
+
+        // ======
 
         public static byte[] StringToByteArray(string hex)
         {
@@ -214,11 +236,6 @@ namespace nbiot_test_client
         public static string ByteArrayToString(byte[] bytes)
         {
             return BitConverter.ToString(bytes).Replace("-", " ");
-        }
-
-        private void Clear_Click(object sender, RoutedEventArgs e)
-        {
-            output.Text = "";
         }
     }
 }

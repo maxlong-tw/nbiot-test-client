@@ -51,7 +51,7 @@ namespace nbiot_test_client
                     int s;
                     while ((s = serial.Read(bytes, 0, bytes.Length)) > 0)
                     {
-                        main.Publish(bytes, 0, s);
+                        main.Send(bytes, 0, s);
                     }
                 }
             }
