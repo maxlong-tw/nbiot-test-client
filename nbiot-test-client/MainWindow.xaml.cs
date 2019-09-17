@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO.Ports;
 using System.Linq;
 using System.Windows;
 using System.Windows.Media;
@@ -24,6 +25,7 @@ namespace nbiot_test_client
         string imei;
 
         MqttClient client;
+        Bridge bridge;
 
         public MainWindow()
         {
@@ -39,14 +41,25 @@ namespace nbiot_test_client
             InitializeComponent();
             send.Click += Send_Click;
             clear.Click += Clear_Click;
+            bind.Click += Bind_Click;
 
             gateway.Content = imei;
+
+            foreach (string com in SerialPort.GetPortNames())
+            {
+                ttys.Items.Add(com);
+            }
 
             init();           
         }
 
         protected override void OnClosing(CancelEventArgs e)
         {
+            if (bridge != null)
+            {
+                bridge.Destroy();
+            }
+
             if (client != null)
             {
                 client.Disconnect();
@@ -110,8 +123,11 @@ namespace nbiot_test_client
             }
             else if (e.Topic.EndsWith("rx")) // /maxlong/broker/imei/{0}/rx
             {
-                string rx = BitConverter.ToString(e.Message).Replace('-', ' ');
-                Println("RECV - " + rx);
+                Println("RECV - " + ByteArrayToString(e.Message));
+                if (bridge != null)
+                {
+                    bridge.Write(e.Message);
+                }
             }
         }
 
@@ -144,15 +160,47 @@ namespace nbiot_test_client
             {
                 string hex = tx.Text.Replace(" ", "");
                 byte[] bytes = StringToByteArray(hex);
-                client.Publish(String.Format(TOPIC_TX, imei), bytes);
-
-                AppendText("SEND - " + tx.Text);
-
+                Publish(bytes, 0, bytes.Length);
             }
             catch (Exception ex)
             {
                 AppendText("ERROR - incorrect HEX input: " + ex.Message);
             }            
+        }
+
+        private void Bind_Click(object sender, RoutedEventArgs e)
+        {
+            string tty = (string) ttys.SelectedItem;
+            if (String.IsNullOrEmpty(tty))
+            {
+                MessageBox.Show("You must choice a serial port!");
+                return;
+            }
+
+            try
+            {
+                bridge = new Bridge(this, tty);
+
+                ttys.IsEnabled = false; // you cannot change it again
+                bind.IsEnabled = false; // you cannot change it again            
+
+                AppendText(String.Format("Bridge {0} to NB-IoT Gateway", tty));
+            }
+            catch (Exception ex)
+            {
+                AppendText("ERROR - failed to open serial port - " + tty + ", " + ex.Message);
+            }
+        }
+
+        public void Publish(byte[] bytes, int offset, int count)
+        {
+            byte[] payload = new byte[count];
+            Array.Copy(bytes, offset, payload, 0, count);
+
+            string topic = String.Format(TOPIC_TX, imei);
+            client.Publish(topic, payload);
+
+            Println("SEND - " + ByteArrayToString(payload));
         }
 
         public static byte[] StringToByteArray(string hex)
@@ -161,6 +209,11 @@ namespace nbiot_test_client
                              .Where(x => x % 2 == 0)
                              .Select(x => Convert.ToByte(hex.Substring(x, 2), 16))
                              .ToArray();
+        }
+
+        public static string ByteArrayToString(byte[] bytes)
+        {
+            return BitConverter.ToString(bytes).Replace("-", " ");
         }
 
         private void Clear_Click(object sender, RoutedEventArgs e)
